@@ -7,6 +7,7 @@ from app.services.agents import (
     execute_contract_comparison_pipeline
 )
 from app.schemas import ContractChangeOutput, ContractChangeDetail
+from app.services.cache import clear_pipeline_cache
 
 from langchain_core.runnables import Runnable
 
@@ -101,9 +102,52 @@ async def test_execute_contract_comparison_pipeline(mock_step3, mock_step2, mock
         mock_settings.OPENAI_MODEL_NAME = "gpt-4o"
         mock_settings.OPENAI_API_KEY.get_secret_value.return_value = "fake-key"
         
+        clear_pipeline_cache()  # Clear cache to guarantee first execution runs
         result, trace_id = await execute_contract_comparison_pipeline(original_b64, addendum_b64, "Spanish")
         assert result == mock_data
         assert trace_id == "managed-by-observe-v4"
+
+@pytest.mark.asyncio
+@patch("app.services.agents._step_multimodal_parsing", new_callable=AsyncMock)
+@patch("app.services.agents._step_contextualization_agent", new_callable=AsyncMock)
+@patch("app.services.agents._step_extraction_and_validation_agent", new_callable=AsyncMock)
+async def test_execute_contract_comparison_pipeline_caching(mock_step3, mock_step2, mock_step1):
+    """
+    Verifies that the contract comparison pipeline correctly caches results on identical inputs
+    and returns a cached trace ID, preventing subsequent LLM agent executions.
+    """
+    original_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+    addendum_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+    
+    mock_step1.return_value = {"content": "parsed OCR content"}
+    mock_step2.return_value = "clause context mapping index"
+    
+    mock_data = ContractChangeOutput(changes=[])
+    mock_step3.return_value = mock_data
+    
+    with patch("app.services.agents.settings") as mock_settings:
+        mock_settings.OPENAI_MODEL_NAME = "gpt-4o"
+        mock_settings.OPENAI_API_KEY.get_secret_value.return_value = "fake-key"
+        
+        clear_pipeline_cache()
+        
+        # 1. First execution should run agents and cache the result
+        result1, trace_id1 = await execute_contract_comparison_pipeline(original_b64, addendum_b64, "Spanish")
+        assert result1 == mock_data
+        assert trace_id1 == "managed-by-observe-v4"
+        assert mock_step1.call_count == 1
+        assert mock_step2.call_count == 1
+        assert mock_step3.call_count == 1
+        
+        # 2. Second execution with the same inputs should hit the cache
+        # (and return cached- prefixed trace ID without invoking agents again)
+        result2, trace_id2 = await execute_contract_comparison_pipeline(original_b64, addendum_b64, "Spanish")
+        assert result2 == mock_data
+        assert trace_id2 == "cached-managed-by-observe-v4"
+        assert mock_step1.call_count == 1
+        assert mock_step2.call_count == 1
+        assert mock_step3.call_count == 1
+
 
 
 

@@ -5,6 +5,11 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.messages import HumanMessage, SystemMessage
 from app.config import settings
 from app.schemas import ContractChangeOutput
+from app.services.cache import (
+    compute_pipeline_cache_key,
+    get_cached_pipeline_result,
+    set_cached_pipeline_result
+)
 
 @observe(name="Pipeline - Compare Contracts")
 async def execute_contract_comparison_pipeline(original_b64: str, addendum_b64: str, language: str = "Spanish"):
@@ -13,7 +18,12 @@ async def execute_contract_comparison_pipeline(original_b64: str, addendum_b64: 
     Coordinates Vision extraction, contextual clause mapping, and structured semantic diff generation.
     All trace information is propagated natively into Langfuse.
     """
-    
+    cache_key = compute_pipeline_cache_key(original_b64, addendum_b64, language)
+    cached_result = get_cached_pipeline_result(cache_key)
+    if cached_result is not None:
+        data, trace_id = cached_result
+        return data, f"cached-{trace_id}"
+        
     # Initialize low-temperature deterministic ChatOpenAI model
     llm = ChatOpenAI(
         model=settings.OPENAI_MODEL_NAME,
@@ -30,7 +40,9 @@ async def execute_contract_comparison_pipeline(original_b64: str, addendum_b64: 
     # Step 3 & 4: Extract changes and validate output strictly against the ContractChangeOutput schema
     structured_output = await _step_extraction_and_validation_agent(llm, parsed_texts, context_map, language)
     
+    set_cached_pipeline_result(cache_key, structured_output, "managed-by-observe-v4")
     return structured_output, "managed-by-observe-v4"
+
 
 @observe(as_type="generation", name="Step 1 - Multimodal Parsing (Vision)")
 async def _step_multimodal_parsing(llm: ChatOpenAI, original_b64: str, addendum_b64: str) -> dict:
