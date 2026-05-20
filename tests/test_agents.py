@@ -37,8 +37,11 @@ async def test_step_multimodal_parsing():
     addendum_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     
     result = await _step_multimodal_parsing(mock_llm, original_b64, addendum_b64)
-    assert result == {"content": "OCR parsed raw content"}
-    assert mock_llm._ainvoke_mock.call_count == 1
+    assert result == {
+        "original_text": "OCR parsed raw content",
+        "addendum_text": "OCR parsed raw content"
+    }
+    assert mock_llm._ainvoke_mock.call_count == 2
 
 @pytest.mark.asyncio
 async def test_step_contextualization_agent():
@@ -49,7 +52,10 @@ async def test_step_contextualization_agent():
     mock_response.content = "Clause 1 Original maps to Clause 2 Addendum"
     mock_llm = MockLLM(AsyncMock(return_value=mock_response))
     
-    parsed_texts = {"content": "Raw OCR text"}
+    parsed_texts = {
+        "original_text": "Raw original text",
+        "addendum_text": "Raw addendum text"
+    }
     
     result = await _step_contextualization_agent(mock_llm, parsed_texts)
     assert result == "Clause 1 Original maps to Clause 2 Addendum"
@@ -73,7 +79,10 @@ async def test_step_extraction_and_validation_agent():
     mock_llm = MockLLM()
     mock_llm.with_structured_output.return_value = mock_structured_llm
     
-    parsed_texts = {"content": "Raw OCR text"}
+    parsed_texts = {
+        "original_text": "Raw original text",
+        "addendum_text": "Raw addendum text"
+    }
     context_map = "Clause map index"
     
     result = await _step_extraction_and_validation_agent(mock_llm, parsed_texts, context_map, "Spanish")
@@ -92,7 +101,10 @@ async def test_execute_contract_comparison_pipeline(mock_step3, mock_step2, mock
     original_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     addendum_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     
-    mock_step1.return_value = {"content": "parsed OCR content"}
+    mock_step1.return_value = {
+        "original_text": "parsed original OCR content",
+        "addendum_text": "parsed addendum OCR content"
+    }
     mock_step2.return_value = "clause context mapping index"
     
     mock_data = ContractChangeOutput(changes=[])
@@ -119,7 +131,10 @@ async def test_execute_contract_comparison_pipeline_caching(mock_step3, mock_ste
     original_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     addendum_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     
-    mock_step1.return_value = {"content": "parsed OCR content"}
+    mock_step1.return_value = {
+        "original_text": "parsed original OCR content",
+        "addendum_text": "parsed addendum OCR content"
+    }
     mock_step2.return_value = "clause context mapping index"
     
     mock_data = ContractChangeOutput(changes=[])

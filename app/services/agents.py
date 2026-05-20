@@ -1,3 +1,4 @@
+import asyncio
 from langfuse import observe
 from langfuse.langchain import CallbackHandler
 from langchain_openai import ChatOpenAI
@@ -37,10 +38,10 @@ async def execute_contract_comparison_pipeline(original_b64: str, addendum_b64: 
             temperature=0.0
         )
         
-        # Step 1: Extract textual data from images using vision capabilities
-        logger.info("Executing Agent Step 1: Multimodal OCR / Vision Parsing...")
+        # Step 1: Extract textual data from images using vision capabilities concurrently
+        logger.info("Executing Agent Step 1: Parallel Multimodal OCR / Vision Parsing...")
         parsed_texts = await _step_multimodal_parsing(llm, original_b64, addendum_b64)
-        logger.info("Agent Step 1 Completed successfully.")
+        logger.info("Agent Step 1 Completed successfully. Both documents transcribed.")
         
         # Step 2: Establish connection map and context relationships between clauses
         logger.info("Executing Agent Step 2: Contextual Clause Mapping...")
@@ -60,27 +61,41 @@ async def execute_contract_comparison_pipeline(original_b64: str, addendum_b64: 
         raise exc
 
 
-@observe(as_type="generation", name="Step 1 - Multimodal Parsing (Vision)")
-async def _step_multimodal_parsing(llm: ChatOpenAI, original_b64: str, addendum_b64: str) -> dict:
+@observe(as_type="generation", name="OCR Transcription Step")
+async def _transcribe_document(llm: ChatOpenAI, base64_image: str, document_role: str) -> str:
     """
-    Multimodal vision parser extracting raw textual data from base64 document images.
+    Helper function to run isolated OCR on a single document image.
     """
     handler = CallbackHandler()
     config = {"callbacks": [handler]}
     
     messages = [
-        SystemMessage(content="You are an expert in advanced OCR. Transcribe the text faithfully and exactly, respecting the numerical structure."),
+        SystemMessage(content=(
+            "You are an expert in advanced OCR. Transcribe all text from the provided document image "
+            "faithfully, exactly, and completely. Keep the layout, section numbers, titles, and values intact."
+        )),
         HumanMessage(content=[
-            {"type": "text", "text": "Transcribe this ORIGINAL CONTRACT exactly:"},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{original_b64}", "detail": "high"}}
-        ]),
-        HumanMessage(content=[
-            {"type": "text", "text": "Transcribe this ADDENDUM / AMENDMENT exactly:"},
-            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{addendum_b64}", "detail": "high"}}
+            {"type": "text", "text": f"Transcribe this {document_role} image exactly:"},
+            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}", "detail": "high"}}
         ])
     ]
     response = await llm.ainvoke(messages, config=config)
-    return {"content": response.content}
+    return response.content
+
+
+async def _step_multimodal_parsing(llm: ChatOpenAI, original_b64: str, addendum_b64: str) -> dict:
+    """
+    Orchestrates OCR transcription of both original and addendum documents concurrently.
+    """
+    original_text, addendum_text = await asyncio.gather(
+        _transcribe_document(llm, original_b64, "ORIGINAL CONTRACT"),
+        _transcribe_document(llm, addendum_b64, "ADDENDUM / AMENDMENT")
+    )
+    return {
+        "original_text": original_text,
+        "addendum_text": addendum_text
+    }
+
 
 @observe(as_type="generation", name="Step 2 - Contextualization Agent")
 async def _step_contextualization_agent(llm: ChatOpenAI, parsed_texts: dict) -> str:
@@ -91,12 +106,20 @@ async def _step_contextualization_agent(llm: ChatOpenAI, parsed_texts: dict) -> 
     config = {"callbacks": [handler]}
     
     prompt = ChatPromptTemplate.from_messages([
-        ("system", "You are a Legal Contextualization Agent. Map the equivalent clauses between both documents."),
-        ("user", "Content extracted from the documents: {texts}")
+        ("system", (
+            "You are an expert Legal Contextualization Agent.\n"
+            "Your task is to map corresponding clauses and sections between the ORIGINAL CONTRACT and the ADDENDUM / AMENDMENT.\n"
+            "Identify matches by section numbers, titles, and topics. Create a clear mapping of which sections in the original contract are modified, added, or referenced by the addendum."
+        )),
+        ("user", "ORIGINAL CONTRACT:\n{original_text}\n\nADDENDUM / AMENDMENT:\n{addendum_text}")
     ])
     chain = prompt | llm
-    response = await chain.ainvoke({"texts": parsed_texts["content"]}, config=config)
+    response = await chain.ainvoke({
+        "original_text": parsed_texts["original_text"],
+        "addendum_text": parsed_texts["addendum_text"]
+    }, config=config)
     return response.content
+
 
 @observe(as_type="generation", name="Step 3 and 4 - Extraction and Validation Agent")
 async def _step_extraction_and_validation_agent(llm: ChatOpenAI, parsed_texts: dict, context_map: str, language: str) -> ContractChangeOutput:
@@ -108,10 +131,19 @@ async def _step_extraction_and_validation_agent(llm: ChatOpenAI, parsed_texts: d
     
     prompt = ChatPromptTemplate.from_messages([
         ("system", (
-            "You are a High Precision Extraction Agent. Isolate exclusively the additions, deletions, or modifications. "
-            "You MUST synthesize and write all descriptions, sections, and summaries strictly in the requested target language: {language}."
+            "You are a High Precision Legal Extraction Agent.\n"
+            "Your task is to analyze the ORIGINAL CONTRACT, the ADDENDUM / AMENDMENT, and their CONTEXTUAL CLAUSE MAP to extract the precise changes.\n"
+            "CRITICAL RULES:\n"
+            "1. Identify the exact direction of the change: from the Original Contract terms TO the Addendum/Amendment terms.\n"
+            "2. Do not invent, hallucinate, or reverse the values. If the Original says '12 months' and the Addendum says '24 months', the change is '12 months to 24 months'.\n"
+            "3. Synthesize and write all descriptions, sections, and summaries strictly in the requested target language: {language}.\n"
+            "4. Be extremely precise with numbers, currencies, dates, and names."
         )),
-        ("user", "Base Texts: {texts}\n\nContextual Map: {context_map}")
+        ("user", (
+            "ORIGINAL CONTRACT:\n{original_text}\n\n"
+            "ADDENDUM / AMENDMENT:\n{addendum_text}\n\n"
+            "CONTEXTUAL CLAUSE MAP:\n{context_map}"
+        ))
     ])
     
     # Force direct Pydantic structure parsing
@@ -119,7 +151,8 @@ async def _step_extraction_and_validation_agent(llm: ChatOpenAI, parsed_texts: d
     chain = prompt | structured_llm
     
     output = await chain.ainvoke({
-        "texts": parsed_texts["content"],
+        "original_text": parsed_texts["original_text"],
+        "addendum_text": parsed_texts["addendum_text"],
         "context_map": context_map,
         "language": language
     }, config=config)
