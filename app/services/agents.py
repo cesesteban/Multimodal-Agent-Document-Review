@@ -10,6 +10,7 @@ from app.services.cache import (
     get_cached_pipeline_result,
     set_cached_pipeline_result
 )
+from app.logging import logger
 
 @observe(name="Pipeline - Compare Contracts")
 async def execute_contract_comparison_pipeline(original_b64: str, addendum_b64: str, language: str = "Spanish"):
@@ -19,29 +20,44 @@ async def execute_contract_comparison_pipeline(original_b64: str, addendum_b64: 
     All trace information is propagated natively into Langfuse.
     """
     cache_key = compute_pipeline_cache_key(original_b64, addendum_b64, language)
+    logger.info(f"Initializing contract comparison pipeline. Cache Key: {cache_key} - Language: {language}")
+    
     cached_result = get_cached_pipeline_result(cache_key)
     if cached_result is not None:
+        logger.info(f"Cache Hit for key: {cache_key}. Bypassing LLM agent pipeline execution.")
         data, trace_id = cached_result
         return data, f"cached-{trace_id}"
         
-    # Initialize low-temperature deterministic ChatOpenAI model
-    llm = ChatOpenAI(
-        model=settings.OPENAI_MODEL_NAME,
-        api_key=settings.OPENAI_API_KEY.get_secret_value(),
-        temperature=0.0
-    )
-    
-    # Step 1: Extract textual data from images using vision capabilities
-    parsed_texts = await _step_multimodal_parsing(llm, original_b64, addendum_b64)
-    
-    # Step 2: Establish connection map and context relationships between clauses
-    context_map = await _step_contextualization_agent(llm, parsed_texts)
-    
-    # Step 3 & 4: Extract changes and validate output strictly against the ContractChangeOutput schema
-    structured_output = await _step_extraction_and_validation_agent(llm, parsed_texts, context_map, language)
-    
-    set_cached_pipeline_result(cache_key, structured_output, "managed-by-observe-v4")
-    return structured_output, "managed-by-observe-v4"
+    logger.info(f"Cache Miss for key: {cache_key}. Executing multi-agent comparison chain.")
+    try:
+        # Initialize low-temperature deterministic ChatOpenAI model
+        llm = ChatOpenAI(
+            model=settings.OPENAI_MODEL_NAME,
+            api_key=settings.OPENAI_API_KEY.get_secret_value(),
+            temperature=0.0
+        )
+        
+        # Step 1: Extract textual data from images using vision capabilities
+        logger.info("Executing Agent Step 1: Multimodal OCR / Vision Parsing...")
+        parsed_texts = await _step_multimodal_parsing(llm, original_b64, addendum_b64)
+        logger.info("Agent Step 1 Completed successfully.")
+        
+        # Step 2: Establish connection map and context relationships between clauses
+        logger.info("Executing Agent Step 2: Contextual Clause Mapping...")
+        context_map = await _step_contextualization_agent(llm, parsed_texts)
+        logger.info("Agent Step 2 Completed successfully.")
+        
+        # Step 3 & 4: Extract changes and validate output strictly against the ContractChangeOutput schema
+        logger.info(f"Executing Agent Step 3 & 4: Extraction & Validation of changes in {language}...")
+        structured_output = await _step_extraction_and_validation_agent(llm, parsed_texts, context_map, language)
+        logger.info("Agent Step 3 & 4 Completed successfully. Output schema validated.")
+        
+        set_cached_pipeline_result(cache_key, structured_output, "managed-by-observe-v4")
+        logger.info(f"Pipeline finished successfully. Result cached under key: {cache_key}")
+        return structured_output, "managed-by-observe-v4"
+    except Exception as exc:
+        logger.error(f"Critical error occurred inside contract comparison pipeline: {str(exc)}", exc_info=True)
+        raise exc
 
 
 @observe(as_type="generation", name="Step 1 - Multimodal Parsing (Vision)")

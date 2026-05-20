@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, status, Depends, File, UploadFile
 from app.schemas import ContractAnalysisRequest, ContractAnalysisResponse
 from app.services.agents import execute_contract_comparison_pipeline
 from app.api.dependencies import validate_api_key, get_target_language
+from app.logging import logger
 
 router = APIRouter()
 
@@ -36,12 +37,14 @@ async def compare_contracts(
             telemetry_trace_id=trace_id
         )
     except ValueError as val_err:
+        logger.warning(f"Validation failure in /compare: {str(val_err)}")
         # Catch and isolate validation and Base64 format errors as 422 Unprocessable Entity
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Schema or Base64 validation failure (Sentinel 422): {str(val_err)}"
         )
     except Exception as err:
+        logger.error(f"Internal error in /compare: {str(err)}", exc_info=True)
         # Isolate deep LLM/tracing runtime failures and return HTTP 500
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -66,6 +69,7 @@ async def compare_contracts_files(
     Reads file bytes, encodes them to Base64, and triggers the orchestrator pipeline.
     """
     try:
+        logger.info(f"Processing uploaded files. Original: {original_file.filename} - Addendum: {addendum_file.filename}")
         original_bytes = await original_file.read()
         addendum_bytes = await addendum_file.read()
         
@@ -73,6 +77,7 @@ async def compare_contracts_files(
         if not original_bytes or not addendum_bytes:
             raise ValueError("Uploaded files cannot be empty.")
             
+        logger.info(f"Encoding files to base64. Original size: {len(original_bytes)} bytes - Addendum size: {len(addendum_bytes)} bytes")
         original_b64 = base64.b64encode(original_bytes).decode("utf-8")
         addendum_b64 = base64.b64encode(addendum_bytes).decode("utf-8")
         
@@ -87,11 +92,13 @@ async def compare_contracts_files(
             telemetry_trace_id=trace_id
         )
     except ValueError as val_err:
+        logger.warning(f"Validation failure in /compare/files: {str(val_err)}")
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Uploaded file validation failure (Sentinel 422): {str(val_err)}"
         )
     except Exception as err:
+        logger.error(f"Internal error in /compare/files: {str(err)}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Critical failure within the autonomous pipeline: {str(err)}"

@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from collections import defaultdict
 from app.config import settings
 from app.api.endpoints import router as api_router
+from app.logging import logger
 
 # Initialize FastAPI application with custom title and version
 app = FastAPI(
@@ -68,6 +69,24 @@ async def add_security_headers(request: Request, call_next):
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none';"
     return response
 
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    """
+    Logs all incoming requests, status codes, and execution latency.
+    """
+    start_time = time.time()
+    client_ip = request.client.host if request.client else "unknown"
+    logger.info(f"HTTP Request: {request.method} {request.url.path} from IP {client_ip}")
+    
+    try:
+        response = await call_next(request)
+        process_time = (time.time() - start_time) * 1000
+        logger.info(f"HTTP Response: {request.method} {request.url.path} - Status: {response.status_code} - Latency: {process_time:.2f}ms")
+        return response
+    except Exception as e:
+        process_time = (time.time() - start_time) * 1000
+        logger.error(f"HTTP Request Failed: {request.method} {request.url.path} - Error: {str(e)} - Latency: {process_time:.2f}ms", exc_info=True)
+        raise
 
 # Standardize and configure CORS origins from settings
 origins = [o.strip() for o in settings.ALLOWED_CORS_ORIGINS.split(",") if o.strip()]
