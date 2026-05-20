@@ -17,11 +17,19 @@ LegalMove API es un servicio en FastAPI asíncrono y seguro para comparar contra
 
 ## Key Security Features / Características de Seguridad
 
+### English:
 1.  **Strict Base64 Sanitization:** Custom Pydantic v2 validator checking structural Base64 syntax and cleaning data-URI prefixes safely.
 2.  **API Key Authentication:** Guards POST endpoints with an optional HTTP header `X-API-Key`.
 3.  **HTTP Security Headers:** Custom middleware injecting `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, and custom Content-Security-Policies.
 4.  **In-Memory Rate Limiting:** Enforces client IP sliding window limits to prevent DoS.
 5.  **Safe CORS Configuration:** Restricts external origins through clean environment validation.
+
+### Español:
+1.  **Sanitización estricta de Base64:** Validador personalizado en Pydantic v2 que verifica la sintaxis de Base64 y limpia los prefijos data-URI de forma segura.
+2.  **Autenticación por API Key:** Protege los endpoints POST mediante una cabecera HTTP opcional `X-API-Key`.
+3.  **Cabeceras de seguridad HTTP:** Middleware personalizado que inyecta `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff` y Content-Security-Policies personalizadas.
+4.  **Limitación de tasa en memoria:** Aplica límites de ventana deslizante por IP de cliente para evitar DoS.
+5.  **Configuración segura de CORS:** Restringe los orígenes externos mediante validación limpia en variables de entorno.
 
 ---
 
@@ -146,6 +154,8 @@ python main.py
 ```
 Open [http://localhost:8000/docs](http://localhost:8000/docs) to view the Swagger interactive interface.
 
+Abra [http://localhost:8000/docs](http://localhost:8000/docs) para ver la interfaz interactiva de Swagger.
+
 ---
 
 ## Running in Docker / Ejecución en Docker
@@ -170,6 +180,12 @@ docker run -d \
 
 ## Verification & Postman / Verificación y Postman
 
+### English:
 1.  **Interactive docs:** Access [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger) or [http://localhost:8000/redoc](http://localhost:8000/redoc) (ReDoc).
 2.  **Health Check:** Send a GET request to [http://localhost:8000/health](http://localhost:8000/health).
 3.  **Manual Queries:** Import `Postman_Collection.json` into Postman to test headers (`X-API-Key`, `Accept-Language`) and base64 payloads instantly.
+
+### Español:
+1.  **Documentación interactiva:** Acceda a [http://localhost:8000/docs](http://localhost:8000/docs) (Swagger) o [http://localhost:8000/redoc](http://localhost:8000/redoc) (ReDoc).
+2.  **Verificación de estado (Health Check):** Envíe una solicitud GET a [http://localhost:8000/health](http://localhost:8000/health).
+3.  **Consultas manuales:** Importe `Postman_Collection.json` en Postman para probar cabeceras (`X-API-Key`, `Accept-Language`) y payloads en base64 de forma instantánea.
