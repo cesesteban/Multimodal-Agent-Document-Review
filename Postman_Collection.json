@@ -53,6 +53,49 @@
           "path": ["api", "v1", "compare"]
         }
       }
+    },
+    {
+      "name": "Execute Contract Comparison Pipeline (Direct File Upload)",
+      "request": {
+        "method": "POST",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "super-secret-legalmove-key",
+            "type": "text"
+          },
+          {
+            "key": "Accept-Language",
+            "value": "es",
+            "type": "text"
+          }
+        ],
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "original_file",
+              "type": "file",
+              "src": [],
+              "description": "Select the original contract image file (JPEG/PNG)."
+            },
+            {
+              "key": "addendum_file",
+              "type": "file",
+              "src": [],
+              "description": "Select the addendum contract image file (JPEG/PNG)."
+            }
+          ]
+        },
+        "url": {
+          "raw": "http://localhost:8000/api/v1/compare/files",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "v1", "compare", "files"]
+        }
+      }
     }
   ]
 }
+

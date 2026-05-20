@@ -8,47 +8,57 @@ from app.services.agents import (
 )
 from app.schemas import ContractChangeOutput, ContractChangeDetail
 
+from langchain_core.runnables import Runnable
+
+class MockLLM(Runnable):
+    def __init__(self, ainvoke_mock=None):
+        super().__init__()
+        object.__setattr__(self, "_ainvoke_mock", ainvoke_mock or AsyncMock())
+        object.__setattr__(self, "with_structured_output", MagicMock(return_value=self))
+
+    def invoke(self, input, config=None, **kwargs):
+        pass
+
+    async def ainvoke(self, input, config=None, **kwargs):
+        return await self._ainvoke_mock(input, config, **kwargs)
+
+
 @pytest.mark.asyncio
 async def test_step_multimodal_parsing():
     """
     Unit test for the vision parsing stage to ensure messages are parsed correctly.
     """
-    mock_llm = MagicMock()
     mock_response = MagicMock()
     mock_response.content = "OCR parsed raw content"
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm = MockLLM(AsyncMock(return_value=mock_response))
     
     original_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     addendum_b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
     
     result = await _step_multimodal_parsing(mock_llm, original_b64, addendum_b64)
     assert result == {"content": "OCR parsed raw content"}
-    assert mock_llm.ainvoke.call_count == 1
+    assert mock_llm._ainvoke_mock.call_count == 1
 
 @pytest.mark.asyncio
 async def test_step_contextualization_agent():
     """
     Unit test for the clause contextualization mapping agent.
     """
-    mock_llm = MagicMock()
     mock_response = MagicMock()
     mock_response.content = "Clause 1 Original maps to Clause 2 Addendum"
-    mock_llm.ainvoke = AsyncMock(return_value=mock_response)
+    mock_llm = MockLLM(AsyncMock(return_value=mock_response))
     
     parsed_texts = {"content": "Raw OCR text"}
     
     result = await _step_contextualization_agent(mock_llm, parsed_texts)
     assert result == "Clause 1 Original maps to Clause 2 Addendum"
-    assert mock_llm.ainvoke.call_count == 1
+    assert mock_llm._ainvoke_mock.call_count == 1
 
 @pytest.mark.asyncio
 async def test_step_extraction_and_validation_agent():
     """
     Unit test for the extraction and schema enforcement stage.
     """
-    mock_llm = MagicMock()
-    mock_structured_llm = MagicMock()
-    
     mock_data = ContractChangeOutput(
         changes=[
             ContractChangeDetail(
@@ -58,9 +68,9 @@ async def test_step_extraction_and_validation_agent():
             )
         ]
     )
-    
-    mock_structured_llm.ainvoke = AsyncMock(return_value=mock_data)
-    mock_llm.with_structured_output = MagicMock(return_value=mock_structured_llm)
+    mock_structured_llm = MockLLM(AsyncMock(return_value=mock_data))
+    mock_llm = MockLLM()
+    mock_llm.with_structured_output.return_value = mock_structured_llm
     
     parsed_texts = {"content": "Raw OCR text"}
     context_map = "Clause map index"
@@ -68,7 +78,7 @@ async def test_step_extraction_and_validation_agent():
     result = await _step_extraction_and_validation_agent(mock_llm, parsed_texts, context_map, "Spanish")
     assert result == mock_data
     assert mock_llm.with_structured_output.call_count == 1
-    assert mock_structured_llm.ainvoke.call_count == 1
+    assert mock_structured_llm._ainvoke_mock.call_count == 1
 
 @pytest.mark.asyncio
 @patch("app.services.agents._step_multimodal_parsing", new_callable=AsyncMock)
@@ -93,4 +103,7 @@ async def test_execute_contract_comparison_pipeline(mock_step3, mock_step2, mock
         
         result, trace_id = await execute_contract_comparison_pipeline(original_b64, addendum_b64, "Spanish")
         assert result == mock_data
-        assert trace_id == "local-trace"
+        assert trace_id == "managed-by-observe-v4"
+
+
+

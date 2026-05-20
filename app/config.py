@@ -21,7 +21,7 @@ class Settings(BaseSettings):
     # Langfuse Telemetry and Observability Configuration
     LANGFUSE_PUBLIC_KEY: str = "mock-key-please-configure-in-env"
     LANGFUSE_SECRET_KEY: SecretStr = SecretStr("mock-key-please-configure-in-env")
-    LANGFUSE_HOST: str = "https://cloud.langfuse.com"
+    LANGFUSE_BASE_URL: str = "https://cloud.langfuse.com"
     
     # API Protection Configurations
     ALLOWED_CORS_ORIGINS: str = "*"
